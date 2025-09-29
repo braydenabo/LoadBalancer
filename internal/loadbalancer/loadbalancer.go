@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 type server struct {
@@ -17,6 +18,7 @@ type LoadBalancer struct {
 	servers        []*server // Backend servers we have access too
 	wg             sync.WaitGroup
 	current_server int
+	mu             sync.Mutex
 }
 
 func (lb *LoadBalancer) Start() {
@@ -27,6 +29,8 @@ func (lb *LoadBalancer) Start() {
 		{address: "127.0.0.1:8082", active: true},
 		{address: "127.0.0.1:8083", active: true},
 	}
+
+	go lb.healthCheck()
 
 	ln, err := net.Listen("tcp", "127.0.0.1:8080")
 	if err != nil {
@@ -53,9 +57,6 @@ func (lb *LoadBalancer) handleConnections(conn net.Conn) {
 	// Dial a certain server
 	fmt.Printf("Received request from %s\n", conn.RemoteAddr())
 
-	//clientResponse := readConn(conn)
-	//fmt.Printf("Client %s\n", clientResponse)
-
 	nextServer := lb.getServer()
 
 	backendConn, err := net.Dial("tcp", nextServer.address)
@@ -63,44 +64,14 @@ func (lb *LoadBalancer) handleConnections(conn net.Conn) {
 		log.Fatal(err)
 	}
 
-	// // Write to backend server, the original connection
-	// ba, err = backendConn.Write([]byte(clientResponse))
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
 	go io.Copy(backendConn, conn)
 	io.Copy(conn, backendConn)
 
 }
 
-// func readConn(conn net.Conn) string {
-// 	reader := bufio.NewReader(conn)
-
-// 	buffer := bytes.Buffer{}
-
-// 	for {
-// 		s, err := reader.ReadString('\n')
-// 		if err != nil {
-// 			log.Fatal(err)
-// 		}
-// 		if s == "\r\n" {
-// 			break
-// 		}
-// 		buffer.WriteString(s)
-
-// 		if s == "\r\n" {
-// 			break
-// 		}
-// 		fmt.Print(s)
-// 	}
-
-// 	return buffer.String()
-// }
-
-// Function to get the next server
-
 func (lb *LoadBalancer) getServer() *server {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
 	next := lb.current_server + 1
 	for i := 0; i < len(lb.servers); i++ {
 		id := (int(next) + i) % len(lb.servers)
@@ -110,4 +81,42 @@ func (lb *LoadBalancer) getServer() *server {
 		}
 	}
 	return nil
+}
+
+func (lb *LoadBalancer) healthCheck() {
+	ticker := time.NewTicker(time.Second * 10)
+
+	for range ticker.C {
+		fmt.Printf("Health check loop")
+
+		// Create a map of server health: serverAddress -> health
+		// This is to avoid locking our mutex everytime we want to dial and check the server
+		healthStatus := make(map[string]bool)
+		for _, s := range lb.servers {
+			// Dial the server to check its health status
+			conn, err := net.DialTimeout("tcp", s.address, 2*time.Second)
+			if err != nil {
+				healthStatus[s.address] = false
+			} else {
+				conn.Close()
+				healthStatus[s.address] = true
+
+			}
+		}
+
+		// Using our server map, we can now use our lock to update server heatlh status
+		lb.mu.Lock()
+		for _, s := range lb.servers {
+			isHealthy := healthStatus[s.address]
+			if s.active && !isHealthy {
+				log.Printf("Server %s, is down\n", s.address)
+				s.active = false
+			} else if !s.active && isHealthy {
+				log.Printf("Server %s is now running.", s.address)
+				s.active = true
+			}
+		}
+		// Unlock our mutex
+		lb.mu.Unlock()
+	}
 }
