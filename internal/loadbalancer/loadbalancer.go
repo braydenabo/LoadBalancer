@@ -66,6 +66,7 @@ func (lb *LoadBalancer) handleConnections(conn net.Conn) {
 	}
 
 	go io.Copy(backendConn, conn)
+	// Print what is being received from backend for testing
 	writer := io.MultiWriter(conn, os.Stdout)
 
 	io.Copy(writer, backendConn)
