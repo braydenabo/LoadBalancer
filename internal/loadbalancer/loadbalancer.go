@@ -1,9 +1,8 @@
 package loadbalancer
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync"
@@ -40,7 +39,7 @@ func (lb *LoadBalancer) Start() {
 func (lb *LoadBalancer) acceptRequests(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
-		fmt.Printf("Requests from %s", conn.RemoteAddr())
+		fmt.Printf("Requests from %s\n", conn.RemoteAddr())
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -51,55 +50,53 @@ func (lb *LoadBalancer) acceptRequests(ln net.Listener) {
 }
 
 func (lb *LoadBalancer) handleConnections(conn net.Conn) {
-	// Handle the connection
 	// Dial a certain server
-	fmt.Printf("Received request from %s", conn.RemoteAddr())
+	fmt.Printf("Received request from %s\n", conn.RemoteAddr())
 
-	clientResponse := readConn(conn)
-	fmt.Printf("Clien\nt %s\nend\n", clientResponse)
+	//clientResponse := readConn(conn)
+	//fmt.Printf("Client %s\n", clientResponse)
 
-	for {
-		nextServer := lb.getServer()
+	nextServer := lb.getServer()
 
-		backendConn, err := net.Dial("tcp", nextServer.address)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// Write to backend server, the original connection
-		_, err = backendConn.Write([]byte(clientResponse))
-		if err != nil {
-			log.Fatal(err)
-		}
-		backendResponse := readConn(backendConn)
-
-		fmt.Print(backendResponse)
-		conn.Write([]byte(backendResponse))
+	backendConn, err := net.Dial("tcp", nextServer.address)
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	// // Write to backend server, the original connection
+	// ba, err = backendConn.Write([]byte(clientResponse))
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	go io.Copy(backendConn, conn)
+	io.Copy(conn, backendConn)
 
 }
 
-func readConn(conn net.Conn) string {
-	reader := bufio.NewReader(conn)
-	fmt.Println("Here")
+// func readConn(conn net.Conn) string {
+// 	reader := bufio.NewReader(conn)
 
-	buffer := bytes.Buffer{}
-	n := 0
-	for {
-		s, err := reader.ReadString('\n')
-		if err != nil {
-			log.Fatal(err)
-		}
-		buffer.WriteString(s)
-		n += len(s)
+// 	buffer := bytes.Buffer{}
 
-		if s == "\r\n" {
-			break
-		}
-	}
+// 	for {
+// 		s, err := reader.ReadString('\n')
+// 		if err != nil {
+// 			log.Fatal(err)
+// 		}
+// 		if s == "\r\n" {
+// 			break
+// 		}
+// 		buffer.WriteString(s)
 
-	return buffer.String()
-}
+// 		if s == "\r\n" {
+// 			break
+// 		}
+// 		fmt.Print(s)
+// 	}
+
+// 	return buffer.String()
+// }
 
 // Function to get the next server
 

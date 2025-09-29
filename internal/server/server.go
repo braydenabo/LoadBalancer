@@ -2,7 +2,6 @@ package server
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"log"
 	"net"
@@ -11,7 +10,6 @@ import (
 type Server struct {
 	Hostname string
 	Port     string
-	//listener net.Listener
 }
 
 func (s *Server) Start() {
@@ -27,47 +25,42 @@ func (s *Server) Start() {
 			log.Fatal(err)
 		}
 		fmt.Printf("Connection from %s\n", conn.RemoteAddr())
-		// buffer := make([]byte, 1024)
-		// n, _ := conn.Read(buffer)
-		// fmt.Println(n)
-		// time.Sleep(time.Second * 2)
-		// conn.Close()
 
 		go s.handleConnection(conn)
 	}
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
-	fmt.Printf("Received request from %s", conn.RemoteAddr())
+	defer conn.Close() // Defer connection close, so we always close connection after function exits
+	addr := conn.RemoteAddr().String()
+	fmt.Printf("Received request from %s", addr)
 
 	reader := bufio.NewReader(conn)
-	buffer := bytes.Buffer{}
 	for {
 		s, err := reader.ReadString('\n')
 		if err != nil {
-			log.Fatal(err)
+			log.Printf("Error reading from %s: %v\n", addr, err)
 		}
+		// End of http headers
 		if s == "\r\n" {
 			break
 		}
-		buffer.WriteString(s)
-		fmt.Print(s)
+
 	}
 
-	body := "Hello, this is from a valid backend server!"
-
-	// 2. Construct the full HTTP response string.
-	// Note the essential `\r\n` line endings.
+	// HTTP response to send back to the load balancer
+	body := "Hello, this is from a backend server!"
 	response := fmt.Sprintf(
 		"HTTP/1.1 200 OK\r\n"+
 			"Content-Type: text/plain\r\n"+
 			"Content-Length: %d\r\n"+
-			"\r\n"+ // This empty line is the required separator between headers and body.
+			"\r\n"+
 			"%s",
 		len(body), body,
 	)
 
-	// 3. Write the response and close the connection.
-	conn.Write([]byte(response))
-	conn.Close()
+	_, err := conn.Write([]byte(response))
+	if err != nil {
+		log.Printf("Error writing to %s: %v\n", addr, err)
+	}
 }
