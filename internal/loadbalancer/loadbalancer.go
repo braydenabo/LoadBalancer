@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
 )
@@ -22,7 +23,7 @@ type LoadBalancer struct {
 }
 
 func (lb *LoadBalancer) Start() {
-	fmt.Printf("Starting Load Balancer")
+	fmt.Printf("Starting Load Balancer\n")
 	lb.current_server = -1
 	lb.servers = []*server{
 		{address: "127.0.0.1:8081", active: true},
@@ -65,7 +66,9 @@ func (lb *LoadBalancer) handleConnections(conn net.Conn) {
 	}
 
 	go io.Copy(backendConn, conn)
-	io.Copy(conn, backendConn)
+	writer := io.MultiWriter(conn, os.Stdout)
+
+	io.Copy(writer, backendConn)
 
 }
 
@@ -87,7 +90,7 @@ func (lb *LoadBalancer) healthCheck() {
 	ticker := time.NewTicker(time.Second * 10)
 
 	for range ticker.C {
-		fmt.Printf("Health check loop")
+		fmt.Printf("Health check loop\n")
 
 		// Create a map of server health: serverAddress -> health
 		// This is to avoid locking our mutex everytime we want to dial and check the server
@@ -112,7 +115,7 @@ func (lb *LoadBalancer) healthCheck() {
 				log.Printf("Server %s, is down\n", s.address)
 				s.active = false
 			} else if !s.active && isHealthy {
-				log.Printf("Server %s is now running.", s.address)
+				log.Printf("Server %s is now running.\n", s.address)
 				s.active = true
 			}
 		}

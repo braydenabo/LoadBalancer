@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strings"
@@ -42,13 +43,17 @@ func (s *Server) handleConnection(conn net.Conn) {
 	for {
 		s, err := reader.ReadString('\n')
 		if err != nil {
-			log.Printf("Error reading from %s: %v\n", addr, err)
+			// Ignore EOF errors, which will be caused by health checker
+			if err == io.EOF {
+			} else {
+				log.Printf("An actual error occurred with %s: %v", conn.RemoteAddr(), err)
+			}
+			return
 		}
 		// End of http headers
 		if s == "\r\n" {
 			break
 		}
-
 		// Process the method and request target
 		// METHOD_URI_HTTP-Version
 		request := strings.Split(s, " ")
